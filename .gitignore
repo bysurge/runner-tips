@@ -2,3 +2,5 @@ SECRETS.md
 .claude/
 .netlify/
 node_modules/
+demo/offline/
+tools/.cache/

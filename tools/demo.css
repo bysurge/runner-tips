@@ -1,0 +1,24 @@
+/* Offline demo only: on a laptop or projector the app sits in a phone frame, with demo controls beside it. */
+@media (min-width: 700px) {
+  html, body { height: 100%; }
+  body { background: #1d1d1f; display: grid; place-items: center; overflow: hidden; }
+  .stage { display: flex; align-items: center; gap: 36px; padding: 16px; }
+  .phone {
+    position: relative; width: 390px; height: min(844px, calc(100vh - 32px));
+    overflow-y: auto; overflow-x: hidden; background: var(--bg);
+    border: 12px solid #0b0b0c; border-radius: 52px; box-shadow: 0 30px 80px rgba(0,0,0,.5);
+    transform: translateZ(0); /* makes fixed elements (button, sheets, toasts) stick to the phone, not the window */
+    scrollbar-width: none;
+  }
+  .phone::-webkit-scrollbar { display: none; }
+  .phone .bar { top: 0; }
+  .phone .hero h1 { font-size: 30px; }
+  .phone .sheet-main { border-radius: 26px 26px 0 0; margin-bottom: 0; }
+  .phone .fab { right: 16px; }
+  .demo-panel { display: grid; gap: 10px; width: 220px; color: #f5f5f7; font-family: var(--font); }
+  .demo-panel h2 { margin: 0 0 4px; font-size: 15px; font-weight: 800; color: #a1a1a6; text-transform: uppercase; letter-spacing: .06em; }
+  .demo-panel button { font: 800 15px/1.2 var(--font); text-align: left; border: 1px solid #3a3a3c; background: #2c2c2e; color: #f5f5f7; border-radius: 14px; padding: 12px 14px; cursor: pointer; }
+  .demo-panel button[aria-pressed="true"] { background: var(--red); border-color: var(--red); }
+  .demo-panel p { margin: 6px 0 0; font-size: 12px; color: #8e8e93; line-height: 1.4; }
+}
+@media (max-width: 699px) { .demo-panel { display: none; } }

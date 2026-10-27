@@ -1,0 +1,38 @@
+{
+  "_about": "Extra content for the offline demo only. Real tips come from the live database at build time.",
+  "exclude": ["Sneller optrekken"],
+  "translations": {
+    "Volle steekkar": {
+      "title_en": "Full hand truck",
+      "body_en": "Already have three crates on your hand truck and still need to bring a few bags? Put them on top of the upper totes. Hook the bag handles onto the fold-out black handles at the top of the hand truck, then fold the handles back in. That keeps the bags in place so they don't fall off."
+    },
+    "Geen plek voor lids/ deksels": {
+      "title_en": "No room for lids",
+      "body_en": "Stack two lids and wedge their corners into the top corner of the frame, then put the other lids on top. Works well with a frame that is three high and completely full."
+    },
+    "L en R totes": {
+      "title_en": "Totes on both sides",
+      "body_en": "Need totes from both sides? Check which side you need the most from and open only that side. Take out all the totes you need there, including the ones from the other side: temporarily put the front totes on the ground so you can reach the ones at the back."
+    }
+  },
+  "commentTranslations": {
+    "Alleen handig als de totes die ervoor zitten ook leeg zijn. Anders is het onnodig tillen": "Only handy if the totes in front are empty too. Otherwise it's unnecessary lifting.",
+    "Dat is handig!": "That's handy!",
+    "slim!": "Smart!"
+  },
+  "extraTips": [
+    {
+      "category": "general",
+      "title": "Wie wil mijn zaterdagshift ruilen?",
+      "body": "Iemand zin om zaterdag te ruilen? App me even!",
+      "title_en": "Anyone want to swap my Saturday shift?",
+      "body_en": "Anyone up for swapping Saturday? Text me!",
+      "author": null,
+      "daysAgo": 1,
+      "votes": 0,
+      "reports": ["other", "other"],
+      "_note": "Made-up off-topic post, only in the demo, to show moderation."
+    }
+  ],
+  "photos": {}
+}

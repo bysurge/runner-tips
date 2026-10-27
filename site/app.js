@@ -102,7 +102,13 @@ const ICON = {
 };
 
 // ---------- Local settings ----------
-const store = {
+// The offline demo keeps nothing between runs, so every reload starts from the same state.
+const IS_DEMO = !!(window.RT_CONFIG || {}).demo;
+const memStore = new Map();
+const store = IS_DEMO ? {
+  get(k) { return memStore.has(k) ? memStore.get(k) : null; },
+  set(k, v) { v == null ? memStore.delete(k) : memStore.set(k, v); }
+} : {
   get(k) { try { return localStorage.getItem("rt_" + k); } catch (e) { return null; } },
   set(k, v) { try { v == null ? localStorage.removeItem("rt_" + k) : localStorage.setItem("rt_" + k, v); } catch (e) {} }
 };
@@ -115,7 +121,7 @@ if (params.get("admin")) store.set("admin", params.get("admin").trim() === "off"
 if (!store.get("voter")) store.set("voter", (crypto.randomUUID ? crypto.randomUUID() : "10000000-1000-4000-8000-100000000000".replace(/[018]/g, c => (c ^ Math.random() * 16 >> c / 4).toString(16))));
 
 const S = {
-  lang: store.get("lang") || "nl",
+  lang: store.get("lang") || (window.RT_CONFIG || {}).defaultLang || "nl",
   code: store.get("code"),
   admin: store.get("admin"),
   voter: store.get("voter"),
@@ -127,7 +133,7 @@ const L = () => T[S.lang];
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const initials = n => (n || "?").trim().split(/\s+/).map(w => w[0]).slice(0, 2).join("").toUpperCase();
 const $ = id => document.getElementById(id);
-const siteUrl = () => location.origin + location.pathname + (S.code && S.code !== cfg.hubCode ? "?c=" + encodeURIComponent(S.code) : "");
+const siteUrl = () => (window.RT_CONFIG || {}).siteUrl || location.origin + location.pathname + (S.code && S.code !== cfg.hubCode ? "?c=" + encodeURIComponent(S.code) : "");
 
 // ---------- Backend ----------
 const cfg = window.RT_CONFIG || {};
@@ -143,36 +149,43 @@ if (!PREVIEW) {
     return data;
   };
 } else {
-  // Local stand-in with sample data so the page can be checked before the database exists.
+  // Local stand-in: sample data in memory. The offline demo build provides its own data as window.RT_DEMO.
   if (!S.code) { S.code = "preview"; }
   const now = Date.now();
-  const mk = (cat, title, body, author, hoursAgo, votes) => ({ id: "m" + Math.random().toString(36).slice(2), created_at: new Date(now - hoursAgo * 3600e3).toISOString(), category: cat, title, body, author, hidden: false, has_photo: false, votesSet: new Set(Array.from({ length: votes }, (_, i) => "x" + i)), reports: [], comments: [] });
-  const db = [
-    Object.assign(mk("route", "Zet je krat voor koelelementen laag", "Voorbeeldtekst voor de preview.", "Marco", 30, 6), { title_en: "Move your ice-pack crate to hip height", body_en: "Preview text." }),
+  const votesOf = n => new Set(Array.from({ length: n }, (_, i) => "x" + i));
+  const mk = (cat, title, body, author, hoursAgo, votes) => ({ id: "m" + Math.random().toString(36).slice(2), created_at: new Date(now - hoursAgo * 3600e3).toISOString(), category: cat, title, body, author, hidden: false, has_photo: false, votesSet: votesOf(votes), reports: [], comments: [] });
+  const demo = window.RT_DEMO;
+  const db = demo ? demo.tips.map(t => ({ hidden: false, reports: [], comments: [], ...t, has_photo: !!t.photo, votesSet: votesOf(t.votes || 0) })) : [
+    Object.assign(mk("route", "Zet je krat voor koelelementen laag", "Voorbeeldtekst voor de preview.", "Marco", 30, 6), { title_en: "Move your cooling-pack crate lower", body_en: "Preview text.", pin: 1 }),
     mk("weather", "Koud drinken op warme dagen", "Voorbeeldtekst voor de preview.", "Marco", 5, 9),
     mk("route", "Sorteer na elke stop", "Voorbeeldtekst voor de preview.", "Marco", 200, 2),
     mk("device", "Accu wisselen", "Voorbeeldtekst voor de preview.", null, 300, 1),
     mk("cust", "Loop twee keer", "Voorbeeldtekst voor de preview.", "Marco", 100, 0)
   ];
+  const day = n => { const d = new Date(now - n * 86400e3); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
+  const stats = demo?.stats || { visitors_today: 4, visitors_week: 17, visitors_total: 23, views_total: 61, days: [3, 5, 2, 8, 6, 9, 4].map((v, i) => ({ day: day(6 - i), visitors: v, views: v + 2 })) };
   rpc = async (fn, a) => {
-    await new Promise(r => setTimeout(r, 150));
+    await new Promise(r => setTimeout(r, demo ? 60 : 150));
     const find = id => db.find(t => t.id === id);
     switch (fn) {
-      case "get_tips": return { admin: !!S.admin, tips: db.filter(t => S.admin || !t.hidden).map(t => ({ ...t, votes: t.votesSet.size, voted: t.votesSet.has(a.p_voter), reported: t.reports.some(r => r.voter === a.p_voter), reports: S.admin ? t.reports.length : 0, report_reasons: S.admin ? [...new Set(t.reports.map(r => r.reason))].join(", ") : null, comments: t.comments.filter(c => S.admin || !c.hidden), votesSet: undefined })).sort((x, y) => y.created_at.localeCompare(x.created_at)) };
+      case "get_tips": {
+        const shown = db.filter(t => S.admin || !t.hidden);
+        const contributors = new Set(db.filter(t => !t.hidden).map(t => t.voter || (t.author || "").toLowerCase() || t.id)).size;
+        return { admin: !!S.admin, contributors, tips: shown.map(t => ({ ...t, photo: undefined, votes: t.votesSet.size, voted: t.votesSet.has(a.p_voter), reported: t.reports.some(r => r.voter === a.p_voter), reports: S.admin ? t.reports.length : 0, report_reasons: S.admin ? [...new Set(t.reports.map(r => r.reason))].join(", ") : null, comments: t.comments.filter(c => S.admin || !c.hidden).map(c => ({ ...c, mine: c.voter === a.p_voter })), votesSet: undefined })).sort((x, y) => y.created_at.localeCompare(x.created_at)) };
+      }
       case "get_photo": return find(a.p_tip).photo || null;
-      case "add_tip": { const t = mk(a.p_category, a.p_title, a.p_body, a.p_author || null, 0, 0); t.photo = a.p_photo; t.has_photo = !!a.p_photo; db.push(t); return t.id; }
+      case "add_tip": { const t = mk(a.p_category, a.p_title, a.p_body, a.p_author || null, 0, 0); t.photo = a.p_photo; t.has_photo = !!a.p_photo; t.voter = a.p_voter; db.push(t); return t.id; }
       case "toggle_vote": { const t = find(a.p_tip); if (t.votesSet.has(a.p_voter)) { t.votesSet.delete(a.p_voter); return false; } t.votesSet.add(a.p_voter); return true; }
-      case "add_comment": find(a.p_tip).comments.push({ id: "c" + Math.random(), created_at: new Date().toISOString(), author: a.p_author || null, body: a.p_body, hidden: false, mine: true }); return null;
-      case "delete_comment": db.forEach(t => { t.comments = t.comments.filter(c => c.id !== a.p_comment); }); return null;
+      case "add_comment": find(a.p_tip).comments.push({ id: "c" + Math.random(), created_at: new Date().toISOString(), author: a.p_author || null, body: a.p_body, hidden: false, voter: a.p_voter }); return null;
+      case "delete_comment": db.forEach(t => { t.comments = t.comments.filter(c => !(c.id === a.p_comment && c.voter === a.p_voter)); }); return null;
       case "report_tip": find(a.p_tip).reports.push({ voter: a.p_voter, reason: a.p_reason }); return null;
       case "admin_set_hidden": { if (a.p_kind === "tip") find(a.p_id).hidden = a.p_hidden; else db.forEach(t => t.comments.forEach(c => { if (c.id === a.p_id) c.hidden = a.p_hidden; })); return null; }
       case "admin_clear_reports": find(a.p_tip).reports = []; return null;
       case "log_visit": return null;
-      case "get_stats": return { visitors_today: 4, visitors_week: 17, visitors_total: 23, views_total: 61, days: Array.from({ length: 7 }, (_, i) => ({ day: "2026-10-0" + (i + 1), visitors: [3, 5, 2, 8, 6, 9, 4][i], views: 10 })) };
+      case "get_stats": return stats;
     }
   };
 }
-
 async function loadTips() {
   const res = await rpc("get_tips", { p_code: S.code, p_voter: S.voter, p_admin: S.admin || null });
   S.tips = res.tips || [];
@@ -195,7 +208,8 @@ function statsBlock() {
   const slots = Array.from({ length: 14 }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - 13 + i); return { date: d, v: byDay.get(key(d))?.visitors || 0 }; });
   const max = Math.max(1, ...slots.map(s => s.v));
   const first = (st.days || [])[0];
-  const since = first && slots.findIndex(s => key(s.date) === first.day) > 0 ? fmt(new Date(first.day + "T12:00:00")) : null;
+  const inWindow = (st.days || []).reduce((n, d) => n + Number(d.views), 0) === Number(st.views_total);
+  const since = first && inWindow && slots.findIndex(s => key(s.date) === first.day) > 0 ? fmt(new Date(first.day + "T12:00:00")) : null;
   return `<div class="stats-card"><div class="stats-row">
       <div><b>${st.visitors_today}</b><span>${l.stToday}</span></div>
       <div><b>${st.visitors_week}</b><span>${l.stWeek}</span></div>
@@ -217,11 +231,11 @@ function tipCard(t, rank) {
   const x = txt(t);
   const meta = `<div class="meta"><span class="pill">${esc(CATS[t.category]?.[S.lang] || t.category)}</span>${age < 5 * 86400 ? `<span class="badge-new">${l.isNew}</span>` : ""}${t.hidden ? `<span class="badge-new">${l.hiddenLbl}</span>` : ""}</div>`;
   const head = `<div class="tip-head">${meta}<h3>${esc(x.title)}</h3></div>`;
-  const mod = S.isAdmin ? `<div class="mod">${t.reports ? `<span class="warn">${l.reportsLbl(t.reports)}${t.report_reasons ? ": " + esc(t.report_reasons) : ""}</span>` : ""}
+  const mod = S.isAdmin ? `<div class="mod">${t.reports ? `<span class="warn">${l.reportsLbl(t.reports)}${t.report_reasons ? ": " + esc(t.report_reasons.split(", ").map(k => (l.reasons.find(r => r[0] === k) || [k, k])[1]).join(", ")) : ""}</span>` : ""}
       <button class="mini" data-hide="${t.id}" data-to="${!t.hidden}">${t.hidden ? l.unhide : l.hide}</button>
       ${t.reports ? `<button class="mini" data-clear="${t.id}">${l.clearReports}</button>` : ""}</div>` : "";
   const comments = open ? `<div class="comments">
-      ${t.comments.map(c => `<div class="comment${c.hidden ? " is-hidden" : ""}"><div class="comment-head"><b>${esc(c.author || l.anon)}</b><span>${c.mine ? `<button class="mini" data-delc="${c.id}">${l.delComment}</button>` : ""}${S.isAdmin ? ` <button class="mini" data-hidec="${c.id}" data-to="${!c.hidden}">${c.hidden ? l.unhide : l.hide}</button>` : ""}</span></div>${esc(c.body)}</div>`).join("")}
+      ${t.comments.map(c => `<div class="comment${c.hidden ? " is-hidden" : ""}"><div class="comment-head"><b>${esc(c.author || l.anon)}</b><span>${c.mine ? `<button class="mini" data-delc="${c.id}">${l.delComment}</button>` : ""}${S.isAdmin ? ` <button class="mini" data-hidec="${c.id}" data-to="${!c.hidden}">${c.hidden ? l.unhide : l.hide}</button>` : ""}</span></div>${esc(S.lang === "en" && c.body_en ? c.body_en : c.body)}</div>`).join("")}
       <form class="cform" data-tip="${t.id}">
         ${S.name ? "" : `<input id="cn-${t.id}" maxlength="30" placeholder="${l.yourName}" aria-label="${l.yourName}" style="max-width:38%">`}
         <input id="c-${t.id}" maxlength="300" placeholder="${l.addComment}" aria-label="${l.addComment}">
@@ -288,7 +302,7 @@ function render() {
   const people = [...named.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
 
   app.innerHTML = `
-    ${PREVIEW ? `<div class="modbar">${l.preview}</div>` : ""}
+    ${PREVIEW && !IS_DEMO ? `<div class="modbar">${l.preview}</div>` : ""}
     ${S.isAdmin ? `<div class="modbar modbar-row"><span>${l.modBar}</span><button class="mini" data-modoff>${l.modOff}</button></div>${statsBlock()}` : ""}
     ${top.length ? `<section class="sec"><div class="sec-head"><div><h2>${l.top}</h2><p>${l.topSub}</p></div></div>
       <div class="list">${top.map((t, i) => tipCard(t, i + 1)).join("")}</div></section>` : ""}
@@ -334,8 +348,13 @@ function toast(msg) {
   document.querySelectorAll(".toast").forEach(t => t.remove());
   const el = document.createElement("div");
   el.className = "toast"; el.setAttribute("role", "status"); el.textContent = msg;
-  document.body.appendChild(el);
+  (document.querySelector(".phone") || document.body).appendChild(el);
   setTimeout(() => el.remove(), 2800);
+}
+
+function demoPanel() {
+  const b = document.querySelector("[data-demo-mod]");
+  if (b) { b.setAttribute("aria-pressed", !!S.admin); b.textContent = S.admin ? "Moderator mode: on" : "Moderator mode: off"; }
 }
 
 // ---------- Actions ----------
@@ -352,9 +371,11 @@ function sheet(html) {
   const ov = document.createElement("div");
   ov.className = "overlay";
   ov.innerHTML = `<div class="bsheet" role="dialog" aria-modal="true"><div class="grab"></div>${html}</div>`;
-  document.body.appendChild(ov);
-  document.body.style.overflow = "hidden";
-  const close = () => { ov.remove(); document.body.style.overflow = ""; };
+  // In the demo's phone frame the frame scrolls, not the page.
+  const scroller = document.querySelector(".phone") || document.body;
+  (document.querySelector(".phone") || document.body).appendChild(ov);
+  scroller.style.overflow = "hidden";
+  const close = () => { ov.remove(); scroller.style.overflow = ""; };
   ov.addEventListener("click", e => { if (e.target === ov) close(); });
   document.addEventListener("keydown", function esc(e) { if (e.key === "Escape") { close(); document.removeEventListener("keydown", esc); } });
   return { el: ov, close };
@@ -428,6 +449,7 @@ function openAdd() {
       S.name = name; store.set("name", name || null);
       if (photo) S.photos.set(id, photo);
       S.fresh = id; S.cat = "all"; S.sort = "new";
+      setTimeout(() => { if (S.fresh === id) { S.fresh = null; document.getElementById("tip-" + id)?.classList.remove("fresh"); } }, 4000);
       s.close();
       await refresh();
       const el = $("tip-" + id); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -469,7 +491,10 @@ document.addEventListener("click", async e => {
   if ((b = g("[data-cat]"))) { S.cat = S.cat === b.dataset.cat ? "all" : b.dataset.cat; render(); return; }
   if ((b = g("[data-sort]"))) { S.sort = b.dataset.sort; render(); return; }
   if ((b = g("[data-hide]"))) { try { await rpc("admin_set_hidden", { p_admin: S.admin, p_kind: "tip", p_id: b.dataset.hide, p_hidden: b.dataset.to === "true" }); await refresh(); } catch (ex) { toast(L().netErr); } return; }
-  if (g("[data-modoff]")) { store.set("admin", null); S.admin = null; history.replaceState(null, "", location.pathname); await refresh(); toast(L().modOffNote); return; }
+  // Offline demo controls (outside the phone frame).
+  if (g("[data-demo-mod]")) { S.admin = S.admin ? null : "demo"; await refresh(); demoPanel(); return; }
+  if (g("[data-demo-reset]")) { location.reload(); return; }
+  if (g("[data-modoff]")) { store.set("admin", null); S.admin = null; if (!IS_DEMO) history.replaceState(null, "", location.pathname); await refresh(); demoPanel(); if (!IS_DEMO) toast(L().modOffNote); return; }
   if ((b = g("[data-delc]"))) { if (!confirm(L().delConfirm)) return; try { await rpc("delete_comment", { p_code: S.code, p_comment: b.dataset.delc, p_voter: S.voter }); await refresh(); toast(L().commentDeleted); } catch (ex) { toast(L().netErr); } return; }
   if ((b = g("[data-hidec]"))) { try { await rpc("admin_set_hidden", { p_admin: S.admin, p_kind: "comment", p_id: b.dataset.hidec, p_hidden: b.dataset.to === "true" }); await refresh(); } catch (ex) { toast(L().netErr); } return; }
   if ((b = g("[data-clear]"))) { try { await rpc("admin_clear_reports", { p_admin: S.admin, p_tip: b.dataset.clear }); await refresh(); } catch (ex) { toast(L().netErr); } return; }
